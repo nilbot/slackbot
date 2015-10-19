@@ -83,42 +83,34 @@ func getTopNews(topN string) string {
 		// 10+ lines is clusterfuck for anyone's screen
 		n = 5
 	}
-	i := 0
-	for _, storyID := range IDs {
+
+	for _, storyID := range IDs[:n] {
 		itemURL := fmt.Sprintf("https://hacker-news.firebaseio.com/v0/item/%d.json", storyID)
 		itemResp, err := http.Get(itemURL)
 		if err != nil {
 			return fmt.Sprintf("error: %v", err)
 		}
-		var v struct {
-			by          string
-			descendants int
-			id          int
-			kids        []int
-			score       int
-			time        int
-			title       string
-			itemType    string
-			url         string
-		}
+		var v Story
 		json.NewDecoder(itemResp.Body).Decode(&v)
-		if v.itemType != "story" {
-			continue
-		}
-		if v.score < 499 {
-			continue
-		}
-		// story that has more than 500 scores
-		log.Printf("Found story with 500+ scores, ID %v Score %v\n", v.id, v.score)
-		res += fmt.Sprintf("Title: %s\n", v.title)
-		res += fmt.Sprintf("\tURL: %s\n", v.url)
+
+		res += fmt.Sprintf("Title: %s\n", v.Title)
+		res += fmt.Sprintf("\tURL: %s\n", v.URL)
 		res += fmt.Sprintf("\tComment: https://news.ycombinator.com/item?id=%d\n", storyID)
-		i++
-		if i >= n {
-			break
-		}
+
 	}
 	return res
+}
+
+// Story hacker news story api
+type Story struct {
+	By    string `json:"by"`
+	ID    int    `json:"id"`
+	Kids  []int  `json:"kids"`
+	Score int    `json:"score"`
+	Time  int    `json:"time"`
+	Title string `json:"title"`
+	Type  string `json:"type"`
+	URL   string `json:"url"`
 }
 
 // Get the quote via Yahoo. You should replace this method to something
