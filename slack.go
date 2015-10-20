@@ -3,7 +3,6 @@ package slack
 import (
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
 	"log"
 	"net/http"
 	"sync/atomic"
@@ -11,10 +10,9 @@ import (
 	"golang.org/x/net/websocket"
 )
 
-// These two structures represent the response of the Slack API rtm.start.
-// Only some fields are included. The rest are ignored by json.Unmarshal.
-
-// ResponseRtmStart to represent Response from contacting with Slack API
+// ResponseRtmStart and responseSelf structures represent the response of the
+// Slack API rtm.start. Only some fields are included. The rest are ignored by
+// json.Unmarshal.
 type ResponseRtmStart struct {
 	Ok    bool         `json:"ok"`
 	Error string       `json:"error"`
@@ -38,13 +36,9 @@ func Start(token string) (wsurl, id string, err error) {
 		err = fmt.Errorf("API request failed with code %d", resp.StatusCode)
 		return
 	}
-	body, err := ioutil.ReadAll(resp.Body)
-	resp.Body.Close()
-	if err != nil {
-		return
-	}
+
 	var respObj ResponseRtmStart
-	err = json.Unmarshal(body, &respObj)
+	err = json.NewDecoder(resp.Body).Decode(&respObj)
 	if err != nil {
 		return
 	}

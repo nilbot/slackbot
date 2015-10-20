@@ -9,7 +9,9 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
+	"github.com/nilbot/gophernews"
 	"github.com/nilbot/slackbot"
 )
 
@@ -64,53 +66,34 @@ func main() {
 	}
 }
 
+var HNItemURLPrefix string = "https://news.ycombinator.com/item?id="
+
 func getTopNews(topN string) string {
 	n, err := strconv.Atoi(topN)
 	if err != nil {
 		return fmt.Sprintf("top n parsed error: %v", err)
 	}
-	url := "https://hacker-news.firebaseio.com/v0/topstories.json"
-	resp, err := http.Get(url)
-	if err != nil {
-		return fmt.Sprintf("error: %v", err)
-	}
-	topstoryIDs := json.NewDecoder(resp.Body)
-	var IDs []int
-	topstoryIDs.Decode(&IDs)
-
-	var res string
 	if n > 5 {
-		// 10+ lines is clusterfuck for anyone's screen
 		n = 5
 	}
+	var res string
+	timeout := time.Duration(2 * time.Second)
+	httpClient := http.Client{
+		Timeout: timeout,
+	}
+	hnClient := gophernews.NewClient(httpClient)
+	top100 := hnClient.GetTopStories()
 
-	for _, storyID := range IDs[:n] {
-		itemURL := fmt.Sprintf("https://hacker-news.firebaseio.com/v0/item/%d.json", storyID)
-		itemResp, err := http.Get(itemURL)
-		if err != nil {
-			return fmt.Sprintf("error: %v", err)
-		}
-		var v Story
-		json.NewDecoder(itemResp.Body).Decode(&v)
+	for _, id := range top100[:n] {
 
-		res += fmt.Sprintf("Title: %s\n", v.Title)
-		res += fmt.Sprintf("\tURL: %s\n", v.URL)
-		res += fmt.Sprintf("\tComment: https://news.ycombinator.com/item?id=%d\n", storyID)
+		story := hnClient.GetStory(id)
+		res += fmt.Sprintf("Title: %s\n", story.Title)
+		res += fmt.Sprintf("\tURL: %s\n", story.URL)
+		res += fmt.Sprintf("\tDiscussion: %s%d\n", HNItemURLPrefix, id)
 
 	}
-	return res
-}
 
-// Story hacker news story api
-type Story struct {
-	By    string `json:"by"`
-	ID    int    `json:"id"`
-	Kids  []int  `json:"kids"`
-	Score int    `json:"score"`
-	Time  int    `json:"time"`
-	Title string `json:"title"`
-	Type  string `json:"type"`
-	URL   string `json:"url"`
+	return res
 }
 
 // Get the quote via Yahoo. You should replace this method to something
