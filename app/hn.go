@@ -2,13 +2,13 @@ package main
 
 import (
 	"encoding/csv"
-	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/nilbot/gophernews"
@@ -39,18 +39,24 @@ func main() {
 			parts := strings.Fields(m.Text)
 			if len(parts) > 1 && parts[1] == "news" {
 				// getting news
-				if len(parts) == 2 {
-					go func(m slack.Message) {
+				go func(m slack.Message) {
+					if len(parts) == 2 {
 						m.Text = getTopNews("3")
-						slack.PostMessage(ws, m)
-					}(m)
-				} else {
-					go func(m slack.Message) {
+					} else {
 						m.Text = getTopNews(parts[2])
-						slack.PostMessage(ws, m)
-					}(m)
-				}
+					}
+					slack.PostMessage(ws, m)
+				}(m)
 				// NOTE: the Message object is copied, this is intentional
+			} else if len(parts) > 1 && parts[1] == "top" {
+				go func(m slack.Message) {
+					if len(parts) == 2 {
+						m.Text = getTopScoreNews("3")
+					} else {
+						m.Text = getTopScoreNews(parts[2])
+					}
+					slack.PostMessage(ws, m)
+				}(m)
 			} else if len(parts) == 3 && parts[1] == "stock" {
 				// getting stock
 				go func(m slack.Message) {
@@ -59,14 +65,15 @@ func main() {
 				}(m)
 			} else {
 				// huh?
-				m.Text = fmt.Sprintf("sorry, can't serve you anything except 'news #{top n}' and 'stock #{ticker}' for now.\n")
+				m.Text = fmt.Sprintf("sorry, can't serve you anything except 'news [n]', 'top [timeout in seconds]' and 'stock {ticker}' for now.\n")
 				slack.PostMessage(ws, m)
 			}
 		}
 	}
 }
 
-var HNItemURLPrefix string = "https://news.ycombinator.com/item?id="
+// HNItemURLPrefix : URL prefix for fetching an item on hacker news
+var HNItemURLPrefix = "https://news.ycombinator.com/item?id="
 
 func getTopNews(topN string) string {
 	n, err := strconv.Atoi(topN)
@@ -81,12 +88,17 @@ func getTopNews(topN string) string {
 	httpClient := http.Client{
 		Timeout: timeout,
 	}
-	hnClient := gophernews.NewClient(httpClient)
-	top100 := hnClient.GetTopStories()
-
+	hnClient := gophernews.NewClient(&httpClient)
+	top100, err := hnClient.GetTopStories()
+	if err != nil {
+		return fmt.Sprintf("HN API error: %v", err)
+	}
 	for _, id := range top100[:n] {
 
-		story := hnClient.GetStory(id)
+		story, err := hnClient.GetStory(id)
+		if err != nil {
+			return res + fmt.Sprintf("HN API error: %v", err)
+		}
 		res += fmt.Sprintf("Title: %s\n", story.Title)
 		res += fmt.Sprintf("\tURL: %s\n", story.URL)
 		res += fmt.Sprintf("\tDiscussion: %s%d\n", HNItemURLPrefix, id)
@@ -94,6 +106,121 @@ func getTopNews(topN string) string {
 	}
 
 	return res
+}
+
+// ScoreThreshold defines the lower bound of the score to qualify as 'top' news
+var ScoreThreshold = 499
+
+// WorkerCount defines number of goroutines would be spawned for getting the news
+var WorkerCount = 10
+
+// default score 100, 500 is rare, 20 is too low
+func getTopScoreNews(timeoutInSeconds string) string {
+	start := time.Now()
+	n, err := strconv.Atoi(timeoutInSeconds)
+	if err != nil {
+		return fmt.Sprintf("timeout in seconds parsed error: %v", err)
+	}
+	if n > 60 {
+		n = 60
+	}
+
+	hnClient := gophernews.NewClient(nil)
+	top500, _ := hnClient.GetTopStories()
+
+	// pipeline the workload
+	in := gen(top500...)
+	// fan-out the top500 ids
+
+	chans := make([]<-chan string, WorkerCount)
+	for i := range chans {
+		chans[i] = make(chan string)
+	}
+
+	timeout := make(chan bool, 1)
+	go func() {
+		time.Sleep(time.Duration(n) * time.Second)
+		timeout <- true
+	}()
+
+	for i := range chans {
+		chans[i] = get(in, hnClient)
+	}
+
+	var res string
+
+	// without time out
+	// for str := range merge(chans...) {
+	// 	res += str
+	// }
+	articles := 0
+	results := merge(chans...)
+	for counter := 0; counter != WorkerCount; {
+
+		select {
+		case str := <-results:
+			if str != "done" {
+				articles++
+				res += str
+			} else {
+				counter++
+			}
+		case <-timeout:
+			res += fmt.Sprintln("getting news has timed out.")
+			return res
+		}
+	}
+	return res + fmt.Sprintf("All done. I scanned %d articles, selected %d top articles with score %d or more, using %s\n", len(top500), articles, ScoreThreshold, time.Since(start))
+}
+
+func gen(nums ...int) <-chan int {
+	out := make(chan int)
+	go func() {
+		for _, n := range nums {
+			out <- n
+		}
+		close(out)
+	}()
+	return out
+}
+
+func merge(cs ...<-chan string) <-chan string {
+	var wg sync.WaitGroup
+	out := make(chan string)
+
+	//start a output go routine for each c in cs
+	output := func(c <-chan string) {
+		for n := range c {
+			out <- n
+		}
+		wg.Done()
+	}
+	wg.Add(len(cs))
+	for _, c := range cs {
+		go output(c)
+	}
+
+	//start a goroutine to close out once all output goroutines are done.
+	go func() {
+		wg.Wait()
+		close(out)
+	}()
+	return out
+}
+
+func get(in <-chan int, cl *gophernews.Client) <-chan string {
+	out := make(chan string)
+	go func() {
+		for n := range in {
+			story, _ := cl.GetStory(n)
+			if story.Score > ScoreThreshold {
+				out <- fmt.Sprintf("Title: %s\n\tURL: %s\n\tDiscussion: %s%d\n", story.Title, story.URL, HNItemURLPrefix, story.ID)
+			}
+		}
+		out <- "done"
+		close(out)
+	}()
+	return out
 }
 
 // Get the quote via Yahoo. You should replace this method to something
