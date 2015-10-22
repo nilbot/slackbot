@@ -51,7 +51,7 @@ func main() {
 			} else if len(parts) > 1 && parts[1] == "top" {
 				go func(m slack.Message) {
 					if len(parts) == 2 {
-						m.Text = getTopScoreNews("3")
+						m.Text = getTopScoreNews("5")
 					} else {
 						m.Text = getTopScoreNews(parts[2])
 					}
