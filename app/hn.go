@@ -211,12 +211,18 @@ func merge(cs ...<-chan string) <-chan string {
 func get(in <-chan int, cl *gophernews.Client) <-chan string {
 	out := make(chan string)
 	go func() {
+		sum := time.Duration(0)
+		count := 0
 		for n := range in {
+			start := time.Now()
 			story, _ := cl.GetStory(n)
+			sum += time.Since(start)
+			count++
 			if story.Score > ScoreThreshold {
 				out <- fmt.Sprintf("Title: %s\n\tURL: %s\n\tDiscussion: %s%d\n", story.Title, story.URL, HNItemURLPrefix, story.ID)
 			}
 		}
+		log.Printf("worker report average roundtrip is %v\n", time.Duration(int64(sum)/int64(count)))
 		out <- "done"
 		close(out)
 	}()
