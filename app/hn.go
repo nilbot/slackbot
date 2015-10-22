@@ -112,7 +112,7 @@ func getTopNews(topN string) string {
 var ScoreThreshold = 499
 
 // WorkerCount defines number of goroutines would be spawned for getting the news
-var WorkerCount = 10
+var WorkerCount = 100
 
 // default score 100, 500 is rare, 20 is too low
 func getTopScoreNews(timeoutInSeconds string) string {
