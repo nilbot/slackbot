@@ -18,13 +18,15 @@ import (
 // URI : https://hacker-news.firebaseio.com/v0/topstories.json?print=pretty
 func main() {
 	if len(os.Args) != 2 {
-		fmt.Fprintf(os.Stderr, "usage: hn slack-bot-token\n")
+		fmt.Fprintf(os.Stderr, "usage: hackernews slack-bot-token\n")
 		os.Exit(1)
 	}
 
+	token := os.Args[1]
+	newsChannelID := slack.GetSpamChannelID(token)
 	// start a websocket-based Real Time API session
-	ws, id := slack.Connect(os.Args[1])
-	fmt.Println("hn ready, ^C exits")
+	ws, id := slack.Connect(token)
+	fmt.Println("hackernews ready, ^C exits")
 
 	for {
 		// read each incoming message
@@ -35,6 +37,13 @@ func main() {
 
 		// see if we're mentioned
 		if m.Type == "message" && strings.HasPrefix(m.Text, "<@"+id+">") {
+			if m.Channel != newsChannelID {
+				go func(m slack.Message) {
+					m.Text = "Please kindly move to #random first and then talk to me again, thank you!"
+					slack.PostMessage(ws, m)
+				}(m)
+				continue
+			}
 			// if so try to parse if
 			parts := strings.Fields(m.Text)
 			if len(parts) > 1 && parts[1] == "news" {
@@ -46,8 +55,7 @@ func main() {
 						m.Text = getTopNews(parts[2])
 					}
 					slack.PostMessage(ws, m)
-				}(m)
-				// NOTE: the Message object is copied, this is intentional
+				}(m) // NOTE: the Message object is copied, this is intentional
 			} else if len(parts) > 1 && parts[1] == "top" {
 				go func(m slack.Message) {
 					if len(parts) == 2 {
