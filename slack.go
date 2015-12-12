@@ -105,7 +105,7 @@ type Channel struct {
 	ID                 string         `json:"id"`
 	Name               string         `json:"name"`
 	Creator            string         `json:"creator"`
-	LastRead           float64        `json:"last_read"`
+	LastRead           float64        `json:"last_read,string,omitempty"`
 	UnreadCount        int            `json:"unread_count"`
 	UnreadCountDisplay int            `json:"unread_count_display"`
 	IsMember           bool           `json:"is_member"`
@@ -163,10 +163,7 @@ func GetChannelList(token string) (result []Channel, err error) {
 		return nil, err
 	}
 
-	err = json.NewDecoder(resp.Body).Decode(&result)
-	if err != nil {
-		return nil, err
-	}
+	result = respObj.Channels
 
 	return result, nil
 }
