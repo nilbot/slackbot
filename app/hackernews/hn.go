@@ -36,10 +36,13 @@ func main() {
 		}
 
 		// see if we're mentioned
-		if m.Type == "message" && strings.HasPrefix(m.Text, "<@"+id+">") {
+		if m.Type == "message" &&
+			strings.HasPrefix(m.Text, "<@"+id+">") {
 			if m.Channel != newsChannelID {
 				go func(m slack.Message) {
-					m.Text = "Please kindly move to #random first and then talk to me again, thank you!"
+					m.Text = "Please kindly move to " +
+						"#random first and then talk " +
+						"to me again, thank you!"
 					slack.PostMessage(ws, m)
 				}(m)
 				continue
@@ -55,13 +58,13 @@ func main() {
 						m.Text = getTopNews(parts[2])
 					}
 					slack.PostMessage(ws, m)
-				}(m) // NOTE: the Message object is copied, this is intentional
+				}(m) // NOTE: value copy instead of ptr ref
 			} else if len(parts) > 1 && parts[1] == "top" {
 				go func(m slack.Message) {
 					if len(parts) == 2 {
-						m.Text = getTopScoreNews("5")
+						m.Text = topScores("5")
 					} else {
-						m.Text = getTopScoreNews(parts[2])
+						m.Text = topScores(parts[2])
 					}
 					slack.PostMessage(ws, m)
 				}(m)
@@ -73,7 +76,11 @@ func main() {
 				}(m)
 			} else {
 				// huh?
-				m.Text = fmt.Sprintf("sorry, can't serve you anything except 'news [n]', 'top [timeout in seconds]' and 'stock {ticker}' for now.\n")
+				m.Text = fmt.Sprintf("sorry, can't " +
+					"serve you anything except " +
+					"'news [n]', 'top [timeout in" +
+					" seconds]' and 'stock " +
+					"{ticker}' for now.\n")
 				slack.PostMessage(ws, m)
 			}
 		}
@@ -119,11 +126,11 @@ func getTopNews(topN string) string {
 // ScoreThreshold defines the lower bound of the score to qualify as 'top' news
 var ScoreThreshold = 499
 
-// WorkerCount defines number of goroutines would be spawned for getting the news
+// WorkerCount defines number of goroutines for getting the news
 var WorkerCount = 100
 
 // default score 100, 500 is rare, 20 is too low
-func getTopScoreNews(timeoutInSeconds string) string {
+func topScores(timeoutInSeconds string) string {
 	start := time.Now()
 	n, err := strconv.Atoi(timeoutInSeconds)
 	if err != nil {
@@ -178,7 +185,9 @@ func getTopScoreNews(timeoutInSeconds string) string {
 			return res
 		}
 	}
-	return res + fmt.Sprintf("All done. I scanned %d articles, selected %d top articles with score %d or more, using %s\n", len(top500), articles, ScoreThreshold, time.Since(start))
+	return res + fmt.Sprintf("All done. I scanned %d articles, "+
+		"selected %d top articles with score %d or more, using %s\n",
+		len(top500), articles, ScoreThreshold, time.Since(start))
 }
 
 func gen(nums ...int) <-chan int {
@@ -227,21 +236,30 @@ func get(in <-chan int, cl *gophernews.Client) <-chan string {
 			sum += time.Since(start)
 			count++
 			if story.Score > ScoreThreshold {
-				out <- fmt.Sprintf("Title: %s\n\tURL: %s\n\tDiscussion: %s%d\n", story.Title, story.URL, HNItemURLPrefix, story.ID)
+				out <- fmt.Sprintf("Title: %s\n\t"+
+					"URL: %s\n\t"+
+					"Discussion: %s%d\n",
+					story.Title,
+					story.URL,
+					HNItemURLPrefix,
+					story.ID)
 			}
 		}
-		log.Printf("worker report average roundtrip is %v\n", time.Duration(int64(sum)/int64(count)))
+		log.Printf("worker report average roundtrip is %v\n",
+			time.Duration(int64(sum)/int64(count)))
 		out <- "done"
 		close(out)
 	}()
 	return out
 }
 
+var stk = "http://download.finance.yahoo.com/d/quotes.csv?s=%s&f=nsl1op&e=.csv"
+
 // Get the quote via Yahoo. You should replace this method to something
 // relevant to your team!
 func getQuote(sym string) string {
 	sym = strings.ToUpper(sym)
-	url := fmt.Sprintf("http://download.finance.yahoo.com/d/quotes.csv?s=%s&f=nsl1op&e=.csv", sym)
+	url := fmt.Sprintf(stk, sym)
 	resp, err := http.Get(url)
 	if err != nil {
 		return fmt.Sprintf("error: %v", err)
@@ -251,7 +269,8 @@ func getQuote(sym string) string {
 		return fmt.Sprintf("error: %v", err)
 	}
 	if len(rows) >= 1 && len(rows[0]) == 5 {
-		return fmt.Sprintf("%s (%s) is trading at $%s", rows[0][0], rows[0][1], rows[0][2])
+		return fmt.Sprintf("%s (%s) is trading at $%s",
+			rows[0][0], rows[0][1], rows[0][2])
 	}
 	return fmt.Sprintf("unknown response format (symbol was \"%s\")", sym)
 }
