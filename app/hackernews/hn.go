@@ -152,7 +152,7 @@ func topNews(kstr string) string {
 	min := 1 << 20
 	max := -1
 	for j := 0; j < k; j++ {
-		rank := rq.Pop().(*Rank)
+		rank := heap.Pop(&rq).(*Rank)
 		if min > rank.Score {
 			min = rank.Score
 		}
