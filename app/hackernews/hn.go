@@ -173,7 +173,7 @@ func backgroundFetchNews() {
 	iter := 0
 	for {
 		diff := time.Since(start)
-		if diff > threshold {
+		if iter == 0 || diff > threshold {
 			start = time.Now()
 			iter++
 			log.Println("iteration: ", iter)
