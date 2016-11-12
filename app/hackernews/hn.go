@@ -1,6 +1,7 @@
 package main
 
 import (
+	"container/heap"
 	"encoding/csv"
 	"fmt"
 	"log"
@@ -15,6 +16,11 @@ import (
 	"github.com/nilbot/slackbot"
 )
 
+var cache = struct {
+	m map[int]gophernews.Story
+	sync.RWMutex
+}{m: make(map[int]gophernews.Story)}
+
 // URI : https://hacker-news.firebaseio.com/v0/topstories.json?print=pretty
 func main() {
 	if len(os.Args) != 2 {
@@ -27,7 +33,7 @@ func main() {
 	// start a websocket-based Real Time API session
 	ws, id := slack.Connect(token)
 	fmt.Println("hackernews ready, ^C exits")
-
+	go backgroundFetchNews()
 	for {
 		// read each incoming message
 		m, err := slack.GetMessage(ws)
@@ -41,7 +47,8 @@ func main() {
 			if _, ok := newsChannelID[m.Channel]; !ok {
 				go func(m slack.Message) {
 					m.Text = "Please kindly move to " +
-						"#random first and then talk " +
+						"#random or #test-chamber " +
+						"first and then talk " +
 						"to me again, thank you!"
 					slack.PostMessage(ws, m)
 				}(m)
@@ -53,18 +60,18 @@ func main() {
 				// getting news
 				go func(m slack.Message) {
 					if len(parts) == 2 {
-						m.Text = getTopNews("3")
+						m.Text = randomNews("3")
 					} else {
-						m.Text = getTopNews(parts[2])
+						m.Text = randomNews(parts[2])
 					}
 					slack.PostMessage(ws, m)
 				}(m) // NOTE: value copy instead of ptr ref
 			} else if len(parts) > 1 && parts[1] == "top" {
 				go func(m slack.Message) {
 					if len(parts) == 2 {
-						m.Text = topScores("5")
+						m.Text = topNews("5")
 					} else {
-						m.Text = topScores(parts[2])
+						m.Text = topNews(parts[2])
 					}
 					slack.PostMessage(ws, m)
 				}(m)
@@ -90,104 +97,102 @@ func main() {
 // HNItemURLPrefix : URL prefix for fetching an item on hacker news
 var HNItemURLPrefix = "https://news.ycombinator.com/item?id="
 
-func getTopNews(topN string) string {
+func randomNews(topN string) string {
 	n, err := strconv.Atoi(topN)
 	if err != nil {
 		return fmt.Sprintf("top n parsed error: %v", err)
 	}
-	if n > 5 {
-		n = 5
+	if n > len(cache.m) {
+		n = len(cache.m)
 	}
-	var res string
-	timeout := time.Duration(2 * time.Second)
-	httpClient := http.Client{
-		Timeout: timeout,
-	}
-	hnClient := gophernews.NewClient(&httpClient)
-	top100, err := hnClient.GetTopStories()
-	if err != nil {
-		return fmt.Sprintf("HN API error: %v", err)
-	}
-	for _, id := range top100[:n] {
-
-		story, err := hnClient.GetStory(id)
-		if err != nil {
-			return res + fmt.Sprintf("HN API error: %v", err)
+	res := "Delivering random news...\n"
+	count := 1
+	for k, v := range cache.m {
+		if count > n {
+			break
 		}
-		res += fmt.Sprintf("Title: %s\n", story.Title)
-		res += fmt.Sprintf("\tURL: %s\n", story.URL)
-		res += fmt.Sprintf("\tDiscussion: %s%d\n", HNItemURLPrefix, id)
-
+		res += fmt.Sprintf("Title: %s\n", v.Title)
+		res += fmt.Sprintf("\tURL: %s\n", v.URL)
+		res += fmt.Sprintf("\tDiscussion: %s%d\n", HNItemURLPrefix, k)
+		count++
 	}
 
 	return res
 }
 
 // ScoreThreshold defines the lower bound of the score to qualify as 'top' news
-var ScoreThreshold = 499
+var ScoreThreshold = 500
 
 // WorkerCount defines number of goroutines for getting the news
 var WorkerCount = 100
 
 // default score 100, 500 is rare, 20 is too low
-func topScores(timeoutInSeconds string) string {
-	start := time.Now()
-	n, err := strconv.Atoi(timeoutInSeconds)
+func topNews(kstr string) string {
+	k, err := strconv.Atoi(kstr)
 	if err != nil {
-		return fmt.Sprintf("timeout in seconds parsed error: %v", err)
+		return fmt.Sprintf("top k parsed error: %v", err)
 	}
-	if n > 60 {
-		n = 60
+	res := fmt.Sprintf("Delivering top %d news...\n", k)
+	rq := make(RankQueue, len(cache.m))
+	i := 0
+	for id, story := range cache.m {
+		rq[i] = &Rank{
+			Index: id,
+			Title: story.Title,
+			Score: story.Score,
+			URL:   story.URL,
+		}
+		i++
 	}
-
+	heap.Init(&rq)
+	min := 1 << 20
+	max := -1
+	for j := 0; j < k; j++ {
+		rank := rq.Pop().(*Rank)
+		if min > rank.Score {
+			min = rank.Score
+		}
+		if max < rank.Score {
+			max = rank.Score
+		}
+		res += fmt.Sprintf("Title: %s\n\t"+
+			"URL: %s\n\t"+
+			"Discussion: %s%d\n",
+			rank.Title,
+			rank.URL,
+			HNItemURLPrefix,
+			rank.Index)
+	}
+	return res + fmt.Sprintf("All done. I scanned %d articles, "+
+		"selected %d top articles sorted with score(min:%d, max:%d).\n",
+		len(cache.m), k, min, max)
+}
+func backgroundFetchNews() {
 	hnClient := gophernews.NewClient(nil)
-	top500, _ := hnClient.GetTopStories()
+	hnNewsIDs, _ := hnClient.GetTopStories()
 
 	// pipeline the workload
-	in := gen(top500...)
-	// fan-out the top500 ids
+	in := gen(hnNewsIDs...)
+	// fan-out the hnNewsIDs ids
 
-	chans := make([]<-chan string, WorkerCount)
+	chans := make([]<-chan *gophernews.Story, WorkerCount)
 	for i := range chans {
-		chans[i] = make(chan string)
+		chans[i] = make(chan *gophernews.Story)
 	}
-
-	timeout := make(chan bool, 1)
-	go func() {
-		time.Sleep(time.Duration(n) * time.Second)
-		timeout <- true
-	}()
 
 	for i := range chans {
 		chans[i] = get(in, hnClient)
 	}
 
-	var res string
-
-	// without time out
-	// for str := range merge(chans...) {
-	// 	res += str
-	// }
-	articles := 0
 	results := merge(chans...)
 	for counter := 0; counter != WorkerCount; {
-
-		select {
-		case str := <-results:
-			if str != "done" {
-				articles++
-				res += str
-			} else {
-				counter++
-			}
-		case <-timeout:
-			res += fmt.Sprintln("getting news has timed out.")
-			return res
+		str := <-results
+		if str != nil {
+			cache.m[str.ID] = *str
+		} else {
+			counter++
 		}
 	}
-	return res + fmt.Sprintf("All done. I scanned %d articles, "+
-		"selected %d top articles with score %d or more, using %s\n",
-		len(top500), articles, ScoreThreshold, time.Since(start))
 }
 
 func gen(nums ...int) <-chan int {
@@ -201,12 +206,12 @@ func gen(nums ...int) <-chan int {
 	return out
 }
 
-func merge(cs ...<-chan string) <-chan string {
+func merge(cs ...<-chan *gophernews.Story) <-chan *gophernews.Story {
 	var wg sync.WaitGroup
-	out := make(chan string)
+	out := make(chan *gophernews.Story)
 
 	//start a output go routine for each c in cs
-	output := func(c <-chan string) {
+	output := func(c <-chan *gophernews.Story) {
 		for n := range c {
 			out <- n
 		}
@@ -225,8 +230,8 @@ func merge(cs ...<-chan string) <-chan string {
 	return out
 }
 
-func get(in <-chan int, cl *gophernews.Client) <-chan string {
-	out := make(chan string)
+func get(in <-chan int, cl *gophernews.Client) <-chan *gophernews.Story {
+	out := make(chan *gophernews.Story)
 	go func() {
 		sum := time.Duration(0)
 		count := 0
@@ -235,19 +240,13 @@ func get(in <-chan int, cl *gophernews.Client) <-chan string {
 			story, _ := cl.GetStory(n)
 			sum += time.Since(start)
 			count++
-			if story.Score > ScoreThreshold {
-				out <- fmt.Sprintf("Title: %s\n\t"+
-					"URL: %s\n\t"+
-					"Discussion: %s%d\n",
-					story.Title,
-					story.URL,
-					HNItemURLPrefix,
-					story.ID)
+			if story.Score >= ScoreThreshold {
+				out <- &story
 			}
 		}
 		log.Printf("worker report average roundtrip is %v\n",
 			time.Duration(int64(sum)/int64(count)))
-		out <- "done"
+		out <- nil
 		close(out)
 	}()
 	return out
@@ -273,4 +272,51 @@ func getQuote(sym string) string {
 			rows[0][0], rows[0][1], rows[0][2])
 	}
 	return fmt.Sprintf("unknown response format (symbol was \"%s\")", sym)
+}
+
+// Rank is rankable story
+type Rank struct {
+	URL   string
+	Title string
+	Score int
+	Index int
+}
+
+// RankQueue is priority queue ranked by descending scores
+type RankQueue []*Rank
+
+func (rq RankQueue) Len() int { return len(rq) }
+
+func (rq RankQueue) Less(i, j int) bool {
+	return rq[i].Score > rq[j].Score
+}
+
+func (rq RankQueue) Swap(i, j int) {
+	rq[i], rq[j] = rq[j], rq[i]
+	rq[i].Index = i
+	rq[j].Index = j
+}
+
+// Push insert a story
+func (rq *RankQueue) Push(x interface{}) {
+	n := len(*rq)
+	rank := x.(*Rank)
+	rank.Index = n
+	*rq = append(*rq, rank)
+}
+
+// Pop returns the top score
+func (rq *RankQueue) Pop() interface{} {
+	old := *rq
+	n := len(old)
+	rank := old[n-1]
+	rank.Index = -1 // for safety
+	*rq = old[0 : n-1]
+	return rank
+}
+
+// Update the score of a rank in the queue.
+func (rq *RankQueue) Update(rank *Rank, score int) {
+	rank.Score = score
+	heap.Fix(rq, rank.Index)
 }
