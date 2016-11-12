@@ -135,9 +135,10 @@ func topNews(kstr string) string {
 	res := fmt.Sprintf("Delivering top %d news...\n", k)
 	rq := make(RankQueue, len(cache.m))
 	i := 0
-	for k, story := range cache.m {
+	for id, story := range cache.m {
 		rq[i] = &Rank{
-			Index: k,
+			ID:    id,
+			Index: i,
 			Title: story.Title,
 			Score: story.Score,
 			URL:   story.URL,
@@ -161,7 +162,7 @@ func topNews(kstr string) string {
 			rank.Title,
 			rank.URL,
 			HNItemURLPrefix,
-			rank.Index)
+			rank.ID)
 	}
 	return res + fmt.Sprintf("All done. I scanned %d articles, "+
 		"selected %d top articles sorted with score(min:%d, max:%d).\n",
@@ -290,6 +291,7 @@ type Rank struct {
 	URL   string
 	Title string
 	Score int
+	ID    int
 	Index int
 }
 
