@@ -194,7 +194,7 @@ func GetSpamChannelID(token string) (ID map[string]bool) {
 		log.Fatal(e)
 	}
 	for _, c := range list {
-		if /*c.Name == "random" ||*/ c.Name == "test-chamber" {
+		if c.Name == "random" || c.Name == "test-chamber" {
 			ID[c.ID] = true
 		}
 	}
