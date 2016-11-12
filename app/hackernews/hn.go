@@ -135,9 +135,9 @@ func topNews(kstr string) string {
 	res := fmt.Sprintf("Delivering top %d news...\n", k)
 	rq := make(RankQueue, len(cache.m))
 	i := 0
-	for id, story := range cache.m {
+	for _, story := range cache.m {
 		rq[i] = &Rank{
-			Index: id,
+			Index: story.ID,
 			Title: story.Title,
 			Score: story.Score,
 			URL:   story.URL,
@@ -168,29 +168,37 @@ func topNews(kstr string) string {
 		len(cache.m), k, min, max)
 }
 func backgroundFetchNews() {
-	hnClient := gophernews.NewClient(nil)
-	hnNewsIDs, _ := hnClient.GetTopStories()
+	threshold := time.Duration(15) * time.Minute //15minutes
+	start := time.Now()
+	for {
+		diff := time.Since(start) * time.Minute
+		if diff > threshold {
+			start = time.Now()
+			hnClient := gophernews.NewClient(nil)
+			hnNewsIDs, _ := hnClient.GetTopStories()
 
-	// pipeline the workload
-	in := gen(hnNewsIDs...)
-	// fan-out the hnNewsIDs ids
+			// pipeline the workload
+			in := gen(hnNewsIDs...)
+			// fan-out the hnNewsIDs ids
 
-	chans := make([]<-chan *gophernews.Story, WorkerCount)
-	for i := range chans {
-		chans[i] = make(chan *gophernews.Story)
-	}
+			chans := make([]<-chan *gophernews.Story, WorkerCount)
+			for i := range chans {
+				chans[i] = make(chan *gophernews.Story)
+			}
 
-	for i := range chans {
-		chans[i] = get(in, hnClient)
-	}
+			for i := range chans {
+				chans[i] = get(in, hnClient)
+			}
 
-	results := merge(chans...)
-	for counter := 0; counter != WorkerCount; {
-		str := <-results
-		if str != nil {
-			cache.m[str.ID] = *str
-		} else {
-			counter++
+			results := merge(chans...)
+			for counter := 0; counter != WorkerCount; {
+				str := <-results
+				if str != nil {
+					cache.m[str.ID] = *str
+				} else {
+					counter++
+				}
+			}
 		}
 	}
 }
