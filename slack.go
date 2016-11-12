@@ -33,7 +33,8 @@ func Start(token string) (wsurl, id string, err error) {
 		return
 	}
 	if resp.StatusCode != 200 {
-		err = fmt.Errorf("API request failed with code %d", resp.StatusCode)
+		err = fmt.Errorf("API request failed with code %d",
+			resp.StatusCode)
 		return
 	}
 
@@ -77,8 +78,8 @@ func PostMessage(ws *websocket.Conn, m Message) error {
 	return websocket.JSON.Send(ws, m)
 }
 
-// Connect starts a websocket-based Real Time API session and return the websocket
-// and the ID of the (bot-)user whom the token belongs to.
+// Connect starts a websocket-based Real Time API session and return the
+// websocket and the ID of the (bot-)user whom the token belongs to.
 func Connect(token string) (*websocket.Conn, string) {
 	wsurl, id, err := Start(token)
 	if err != nil {
@@ -148,7 +149,8 @@ func GetChannelList(token string) (result []Channel, err error) {
 		return nil, err
 	}
 	if resp.StatusCode != 200 {
-		err = fmt.Errorf("API request failed with code %d", resp.StatusCode)
+		err = fmt.Errorf("API request failed with code %d",
+			resp.StatusCode)
 		return nil, err
 	}
 
@@ -183,16 +185,17 @@ func GetGeneralChannelID(token string) (ID string) {
 	return
 }
 
-// GetSpamChannelID returns the ID of #random channel
-func GetSpamChannelID(token string) (ID string) {
+// GetSpamChannelID returns the ID of #random channel (optionally,
+// a test only channel)
+func GetSpamChannelID(token string) (ID map[string]bool) {
+	ID = make(map[string]bool)
 	list, e := GetChannelList(token)
 	if e != nil {
 		log.Fatal(e)
 	}
 	for _, c := range list {
-		if c.Name == "random" {
-			ID = c.ID
-			break
+		if c.Name == "random" || c.Name == "test-chamber" {
+			ID[c.Name] = true
 		}
 	}
 	return

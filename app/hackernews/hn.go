@@ -38,7 +38,7 @@ func main() {
 		// see if we're mentioned
 		if m.Type == "message" &&
 			strings.HasPrefix(m.Text, "<@"+id+">") {
-			if m.Channel != newsChannelID {
+			if _, ok := newsChannelID[m.Channel]; !ok {
 				go func(m slack.Message) {
 					m.Text = "Please kindly move to " +
 						"#random first and then talk " +
