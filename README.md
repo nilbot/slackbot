@@ -17,9 +17,9 @@ But that doesn't mean _Best_ stories. There are more caveats about HN's v0 API:
 
 > The v0 API is essentially a dump of our in-memory data structures. We know, what works great locally in memory isn't so hot over the network. Many of the awkward things are just the way HN works internally. Want to know the total number of comments on an article? Traverse the tree and count. Want to know the children of an item? Load the item and get their IDs, then load them. The newest page? Starts at item maxid and walks backward, keeping only the top level stories. Same for Ask, Show, etc.
 
-So to implement delivery of __best__ stories like https://news.ycombinator.com/best I'm working off the following todo list:
+Finally got time to implement this 1 year old issue.
 - [x] Implement a bruteforce search that can finish 500 websocket queries with tcp round-trip >250ms each
  - tested finishing time is <= 13s on a 1 core 1Ghz VM with 500MB ram and 100Mbit internet, with 10 workers
  - it can finish within 3s if using 100 workers, average roundtrip for getting a story is 385ms each, when internet condition is excellent
-- [ ] Implement a caching mechanism to cache the search result, sorted by both score and time stamp
-- [ ] Separate the search and update with the main bot to allow multiple streams subscription
+- [x] Implement a caching mechanism to cache the search result, sorted by both score and time stamp
+- [x] Separate the search and update with the main bot to allow multiple streams subscription
