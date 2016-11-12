@@ -120,9 +120,6 @@ func randomNews(topN string) string {
 	return res
 }
 
-// ScoreThreshold defines the lower bound of the score to qualify as 'top' news
-var ScoreThreshold = 500
-
 // WorkerCount defines number of goroutines for getting the news
 var WorkerCount = 100
 
@@ -255,9 +252,7 @@ func get(in <-chan int, cl *gophernews.Client) <-chan *gophernews.Story {
 			story, _ := cl.GetStory(n)
 			sum += time.Since(start)
 			count++
-			if story.Score >= ScoreThreshold {
-				out <- &story
-			}
+			out <- &story
 		}
 		log.Printf("worker report average roundtrip is %v\n",
 			time.Duration(int64(sum)/int64(count)))
