@@ -132,6 +132,9 @@ func topNews(kstr string) string {
 	if err != nil {
 		return fmt.Sprintf("top k parsed error: %v", err)
 	}
+	if k > len(cache.m) {
+		k = len(cache.m)
+	}
 	res := fmt.Sprintf("Delivering top %d news...\n", k)
 	rq := make(RankQueue, len(cache.m))
 	i := 0
