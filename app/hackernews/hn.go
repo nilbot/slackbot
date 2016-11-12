@@ -170,10 +170,13 @@ func topNews(kstr string) string {
 func backgroundFetchNews() {
 	threshold := time.Duration(15) * time.Minute //15minutes
 	start := time.Now()
+	iter := 0
 	for {
-		diff := time.Since(start) * time.Minute
+		diff := time.Since(start)
 		if diff > threshold {
 			start = time.Now()
+			iter++
+			log.Println("iteration: ", iter)
 			hnClient := gophernews.NewClient(nil)
 			hnNewsIDs, _ := hnClient.GetTopStories()
 
