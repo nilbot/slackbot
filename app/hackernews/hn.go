@@ -135,9 +135,9 @@ func topNews(kstr string) string {
 	res := fmt.Sprintf("Delivering top %d news...\n", k)
 	rq := make(RankQueue, len(cache.m))
 	i := 0
-	for _, story := range cache.m {
+	for k, story := range cache.m {
 		rq[i] = &Rank{
-			Index: story.ID,
+			Index: k,
 			Title: story.Title,
 			Score: story.Score,
 			URL:   story.URL,
