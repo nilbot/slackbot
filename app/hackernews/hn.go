@@ -2,6 +2,7 @@ package main
 
 import (
 	"container/heap"
+	"context"
 	"encoding/csv"
 	"fmt"
 	"log"
@@ -12,8 +13,11 @@ import (
 	"sync"
 	"time"
 
+	language "cloud.google.com/go/language/apiv1beta1"
+	"github.com/golang/protobuf/proto"
 	"github.com/nilbot/gophernews"
 	"github.com/nilbot/slackbot"
+	languagepb "google.golang.org/genproto/googleapis/cloud/language/v1beta1"
 )
 
 var cache = struct {
@@ -27,7 +31,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "usage: hackernews slack-bot-token\n")
 		os.Exit(1)
 	}
-
+	ctx, client := initNLP()
 	token := os.Args[1]
 	newsChannelID := slack.GetSpamChannelID(token)
 	// start a websocket-based Real Time API session
@@ -65,7 +69,7 @@ func main() {
 						m.Text = randomNews(parts[2])
 					}
 					slack.PostMessage(ws, m)
-				}(m) // NOTE: value copy instead of ptr ref
+				}(m)
 			} else if len(parts) > 1 && parts[1] == "top" {
 				go func(m slack.Message) {
 					if len(parts) == 2 {
@@ -83,12 +87,20 @@ func main() {
 				}(m)
 			} else {
 				// huh?
-				m.Text = fmt.Sprintf("sorry, can't " +
-					"serve you anything except " +
-					"'news [n]', 'top [timeout in" +
-					" seconds]' and 'stock " +
-					"{ticker}' for now.\n")
-				slack.PostMessage(ws, m)
+				var yourText string
+				for _, p := range parts[1:] {
+					yourText += p + " "
+				}
+				log.Println(yourText)
+				myText := printResp(analyzeSentiment(ctx, client, yourText))
+				if myText != "" {
+					log.Println(myText)
+					m.Text = myText
+					go slack.PostMessage(ws, m)
+				} else {
+					m.Text = "sorry, can't understand you. please try 'news', 'top' or 'stock {trade code}'"
+					go slack.PostMessage(ws, m)
+				}
 			}
 		}
 	}
@@ -330,4 +342,61 @@ func (rq *RankQueue) Pop() interface{} {
 func (rq *RankQueue) Update(rank *Rank, score int) {
 	rank.Score = score
 	heap.Fix(rq, rank.Index)
+}
+
+func initNLP() (context.Context, *language.Client) {
+	ctx := context.Background()
+	client, err := language.NewClient(ctx)
+	if err != nil {
+		log.Println(err)
+		return nil, nil
+	}
+	return ctx, client
+}
+func analyzeSentiment(ctx context.Context, client *language.Client, text string) (*languagepb.AnalyzeSentimentResponse, error) {
+	return client.AnalyzeSentiment(ctx, &languagepb.AnalyzeSentimentRequest{
+		Document: &languagepb.Document{
+			Source: &languagepb.Document_Content{
+				Content: text,
+			},
+			Type: languagepb.Document_PLAIN_TEXT,
+		},
+	})
+}
+func printResp(v proto.Message, err error) string {
+	if err != nil {
+		log.Println(err)
+		return ""
+	}
+	str := v.String()
+	str = strings.Replace(str, "document_sentiment:<polarity:", "", 1)
+	str = strings.Replace(str, "magnitude:", "", 1)
+	str = strings.Replace(str, "> language:", "", 1)
+	str = strings.Replace(str, "\"", "", -1)
+	fields := strings.Fields(str)
+	polarity, _ := strconv.Atoi(fields[0])
+	magnitude, _ := strconv.ParseFloat(fields[1], 64)
+	language := fields[2]
+	var sem, mag, lang string
+	if polarity == -1 {
+		sem = "negative"
+	} else if polarity == 1 {
+		sem = "positive"
+	}
+	if magnitude < 0.5 {
+		mag = "somewhat"
+	} else if magnitude >= 0.5 {
+		mag = "quite"
+	}
+	switch language {
+	case "en":
+		lang = "english"
+	case "fr":
+		lang = "french"
+	case "de":
+		lang = "german"
+	default:
+		lang = "@#$%^&UI"
+	}
+	return fmt.Sprintf("I can understand you are speaking %s, you seemed %s %s.", lang, mag, sem)
 }
